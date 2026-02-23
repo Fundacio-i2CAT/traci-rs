@@ -18,6 +18,10 @@ pub enum TraciError {
 
     /// The SUMO server replied that the requested command is not implemented.
     NotImplemented(String),
+
+    /// SUMO has reached the configured end time and closed the simulation.
+    /// Returned by [`TraciClient::simulation_step`] when `CMD_CLOSE` is received.
+    SimulationEnd,
 }
 
 impl fmt::Display for TraciError {
@@ -27,6 +31,7 @@ impl fmt::Display for TraciError {
             TraciError::Protocol(msg) => write!(f, "TraCI protocol error: {msg}"),
             TraciError::SimulationError(msg) => write!(f, "TraCI simulation error: {msg}"),
             TraciError::NotImplemented(msg) => write!(f, "TraCI command not implemented: {msg}"),
+            TraciError::SimulationEnd => write!(f, "SUMO simulation ended"),
         }
     }
 }

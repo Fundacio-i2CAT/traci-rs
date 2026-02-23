@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: EPL-2.0
-// Simple SUMO simulation example using traci-rs.
+// Kinematic-subscription example using traci-rs.
+//
+// Demonstrates the v0.2 subscription API: subscribe once per vehicle and let
+// SUMO push position/speed/acceleration/angle back in every simulation_step
+// response — zero extra round-trips per step regardless of fleet size.
 //
 // Before running this example, start SUMO with a TraCI server:
 //
@@ -9,8 +13,9 @@
 //        --num-clients 1
 //
 // Then run:
-//   cargo run --example simple_simulation
+//   cargo run --example subscriptions
 
+use std::collections::HashSet;
 use traci_rs::TraciClient;
 
 const NUM_VEHICLES: usize = 5;
@@ -25,14 +30,11 @@ fn main() -> Result<(), traci_rs::TraciError> {
     println!("TraCI API version : {api_version}");
     println!("SUMO version      : {sumo_version}");
 
-    // Add a route spanning the whole network, then insert 5 vehicles on it.
-    // Pick the first available route (already defined in the .rou.xml file),
-    // or create a minimal one-edge route if the network exposes its edges.
+    // Add a route, then insert 5 vehicles on it.
     let routes = client.route_get_id_list()?;
     let route_id = if let Some(r) = routes.first() {
         r.clone()
     } else {
-        // Fallback: create a single-edge route using the first network edge.
         let edges = client.edge_get_id_list()?;
         let first_edge = edges.into_iter()
             .find(|e| !e.starts_with(':'))
@@ -48,7 +50,9 @@ fn main() -> Result<(), traci_rs::TraciError> {
         println!("Added vehicle '{vid}'");
     }
 
+    let mut subscribed: HashSet<String> = HashSet::new();
     let mut step = 0u32;
+
     // simulation_step returns Ok(false) when SUMO sends CMD_CLOSE at end-of-sim.
     while client.simulation_step(0.0)? {
         step += 1;
@@ -61,14 +65,24 @@ fn main() -> Result<(), traci_rs::TraciError> {
             break;
         }
 
+        // Subscribe any vehicle we haven't seen before (one call per vehicle lifetime).
+        for id in &ids {
+            if subscribed.insert(id.clone()) {
+                client.vehicle_subscribe_kinematics(id, 0.0, 1e9)?;
+                println!("Step {step:>4} — subscribed '{id}'");
+            }
+        }
+
         println!("--- Step {:>4}  ({} vehicles) ---", step, ids.len());
         for id in &ids {
-            let pos   = client.vehicle_get_position(id)?;
-            let speed = client.vehicle_get_speed(id)?;
-            println!(
-                "  Vehicle {:20}  pos=({:8.2}, {:8.2})  speed={:.2} m/s",
-                id, pos.x, pos.y, speed
-            );
+            // Reads from the local cache — no socket I/O.
+            if let Some(k) = client.vehicle_get_subscribed_kinematics(id) {
+                println!(
+                    "  Vehicle {:20}  pos=({:8.2}, {:8.2})  \
+                     speed={:6.2} m/s  accel={:6.2} m/s\u{00b2}  angle={:6.1}\u{00b0}",
+                    id, k.position.x, k.position.y, k.speed, k.acceleration, k.angle
+                );
+            }
         }
     }
 

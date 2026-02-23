@@ -74,29 +74,34 @@ fn main() -> Result<(), traci_rs::TraciError> {
 
     // Check versions
     let (api_version, sumo_version) = client.get_version()?;
-    println!("SUMO {}, TraCI API {}", sumo_version, api_version);
+    println!("SUMO {sumo_version}, TraCI API {api_version}");
 
-    // Run 50 simulation steps
-    for _ in 0..50 {
-        client.simulation_step(0.0)?;
-
-        let ids = client.vehicle.get_id_list(&mut client)?;
+    // Run until SUMO signals end-of-simulation (simulation_step returns false)
+    let mut step = 0u32;
+    while client.simulation_step(0.0)? {
+        step += 1;
+        let ids = client.vehicle_get_id_list()?;
         for id in &ids {
-            let pos   = client.vehicle.get_position(&mut client, id)?;
-            let speed = client.vehicle.get_speed(&mut client, id)?;
-            println!("  {} @ ({:.1}, {:.1})  v={:.1} m/s", id, pos.x, pos.y, speed);
+            let pos   = client.vehicle_get_position(id)?;
+            let speed = client.vehicle_get_speed(id)?;
+            println!("  {id} @ ({:.1}, {:.1})  v={:.1} m/s", pos.x, pos.y, speed);
         }
     }
+    println!("Simulation ended after {step} steps.");
 
     client.close()?;
     Ok(())
 }
 ```
 
-Run the bundled example with:
+Run the bundled examples with:
 
 ```bash
+# Basic per-step polling (runs until SUMO end-time)
 cargo run --example simple_simulation
+
+# Subscription example — zero extra round-trips per step
+cargo run --example subscriptions
 ```
 
 ## Supported SUMO domains

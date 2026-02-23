@@ -41,6 +41,7 @@ pub mod client;
 pub use client::TraciClient;
 pub use error::TraciError;
 pub use types::*;
+pub use types::SubscribedKinematics;
 
 // Re-export scope types so users can name them in generic helpers.
 pub use scopes::vehicle::VehicleScope;

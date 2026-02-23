@@ -1237,4 +1237,74 @@ impl VehicleScope {
         }
         Ok(())
     }
+
+    // -----------------------------------------------------------------------
+    // Kinematic subscriptions
+    // -----------------------------------------------------------------------
+
+    /// Subscribe `vehicle_id` to receive position, speed, acceleration, and
+    /// heading on every simulation step, for the duration [`begin`, `end`].
+    ///
+    /// After each `client.simulation_step()` call the results are available
+    /// via [`Self::get_subscribed_kinematics`].
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use traci_rs::TraciClient;
+    /// # let mut client = TraciClient::connect("localhost", 8813).unwrap();
+    /// client.vehicle.subscribe_kinematics(&mut client, "veh_0", 0.0, 3600.0).unwrap();
+    /// loop {
+    ///     client.simulation_step(0.0).unwrap();
+    ///     if let Some(k) = client.vehicle.get_subscribed_kinematics("veh_0") {
+    ///         println!("pos={:?} speed={}", k.position, k.speed);
+    ///     }
+    /// }
+    /// ```
+    pub fn subscribe_kinematics(
+        &self,
+        client: &mut TraciClient,
+        vehicle_id: &str,
+        begin: f64,
+        end: f64,
+    ) -> Result<(), TraciError> {
+        // VAR_ACCELERATION (0x72) is the signed acceleration consistent with
+        // get_acceleration(); use it here for API consistency.
+        let vars = [VAR_POSITION, VAR_SPEED, VAR_ACCELERATION, VAR_ANGLE];
+        client.subscribe_object_variable(
+            CMD_SUBSCRIBE_VEHICLE_VARIABLE,
+            vehicle_id,
+            begin,
+            end,
+            &vars,
+        )
+    }
+
+    /// Read the kinematic state for `vehicle_id` from the subscription cache.
+    ///
+    /// Returns `None` if no subscription result is available for this vehicle
+    /// (e.g. the vehicle is not yet in the simulation, or the subscription was
+    /// not set up).
+    pub fn get_subscribed_kinematics(
+        &self,
+        vehicle_id: &str,
+    ) -> Option<crate::types::SubscribedKinematics> {
+        let results = self.subscription_results.get(vehicle_id)?;
+        let pos = match results.get(&VAR_POSITION)? {
+            crate::types::TraciValue::Pos2D { x, y } => TraciPosition::new_2d(*x, *y),
+            _ => return None,
+        };
+        let speed = match results.get(&VAR_SPEED)? {
+            crate::types::TraciValue::Double(v) => *v,
+            _ => return None,
+        };
+        let acceleration = match results.get(&VAR_ACCELERATION)? {
+            crate::types::TraciValue::Double(v) => *v,
+            _ => return None,
+        };
+        let angle = match results.get(&VAR_ANGLE)? {
+            crate::types::TraciValue::Double(v) => *v,
+            _ => return None,
+        };
+        Some(crate::types::SubscribedKinematics { position: pos, speed, acceleration, angle })
+    }
 }

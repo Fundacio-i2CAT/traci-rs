@@ -16,3 +16,7 @@ path = "src/lib.rs"
 [[example]]
 name = "simple_simulation"
 path = "examples/simple_simulation.rs"
+
+[[example]]
+name = "subscriptions"
+path = "examples/subscriptions.rs"

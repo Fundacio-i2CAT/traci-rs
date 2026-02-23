@@ -32,6 +32,13 @@ impl TraciSocket {
         let addr = format!("{host}:{port}");
         let stream = TcpStream::connect(&addr)
             .map_err(TraciError::Connection)?;
+
+        // Disable Nagle's algorithm. Every TraCI call is a small independent
+        // message; the caller blocks waiting for the reply, so batching
+        // small writes only adds latency (~200 ms per round-trip without this).
+        stream.set_nodelay(true)
+            .map_err(TraciError::Connection)?;
+
         Ok(Self { stream })
     }
 

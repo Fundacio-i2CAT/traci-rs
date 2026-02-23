@@ -423,6 +423,8 @@ pub const VAR_POSITION: u8                        = 0x42;
 pub const VAR_ANGLE: u8                           = 0x43;
 pub const VAR_LENGTH: u8                          = 0x44;
 pub const VAR_COLOR: u8                           = 0x45;
+/// Instantaneous acceleration from the last simulation step (m/s²).
+/// Use this constant with vehicle-type subscription commands.
 pub const VAR_ACCEL: u8                           = 0x46;
 pub const VAR_DECEL: u8                           = 0x47;
 pub const VAR_TAU: u8                             = 0x48;
@@ -500,6 +502,9 @@ pub const VAR_ROUTING_MODE: u8                    = 0x89;
 pub const VAR_POSITION3D: u8                      = 0x39;
 pub const VAR_FOLLOWER: u8                        = 0x78;
 pub const VAR_SPEED_LAT: u8                       = 0x32;
+/// Signed acceleration as reported by `get_acceleration` (m/s²).
+/// Positive = accelerating, negative = braking. Use this constant
+/// with `subscribe_kinematics`.
 pub const VAR_ACCELERATION: u8                    = 0x72;
 pub const VAR_DISTANCE: u8                        = 0x84;
 pub const VAR_STAGE: u8                           = 0xc0;

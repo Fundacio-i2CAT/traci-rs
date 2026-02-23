@@ -151,9 +151,13 @@ impl TraciClient {
 
     /// Advance the simulation by one step (or up to `time` if > 0).
     ///
+    /// Returns `Ok(true)` each step while the simulation is running.
+    /// Returns `Ok(false)` when SUMO signals end-of-simulation via `CMD_CLOSE`,
+    /// at which point the caller should break its loop and call `close()`.
+    ///
     /// After every step all stale subscription results are cleared and the new
     /// ones received from the server are parsed into the scope caches.
-    pub fn simulation_step(&mut self, time: f64) -> Result<(), TraciError> {
+    pub fn simulation_step(&mut self, time: f64) -> Result<bool, TraciError> {
         self.send_simulation_step(time)?;
         let mut in_msg = self.socket_mut()?.receive_exact()?;
         Self::check_result_state_static(&mut in_msg, CMD_SIMSTEP, false, None)?;
@@ -180,15 +184,20 @@ impl TraciClient {
         let num_subs = in_msg.read_i32()?;
         for _ in 0..num_subs {
             let cmd_id = Self::check_command_get_result_static(&mut in_msg, 0, None, true)?;
-            if (RESPONSE_SUBSCRIBE_INDUCTIONLOOP_VARIABLE..=RESPONSE_SUBSCRIBE_PERSON_VARIABLE)
-                .contains(&cmd_id)
-            {
+            // SUMO signals end-of-simulation by appending CMD_CLOSE (0x7F) as
+            // the last block in the simulation_step response.
+            if cmd_id == CMD_CLOSE {
+                return Ok(false);
+            }
+            // Use the pre-built domains map: if cmd_id is registered there it is
+            // a variable subscription; otherwise treat it as a context subscription.
+            if self.domains.contains_key(&cmd_id) {
                 self.read_variable_subscription(cmd_id, &mut in_msg)?;
             } else {
                 self.read_context_subscription(cmd_id.wrapping_add(0x50), &mut in_msg)?;
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Tell SUMO to load a new simulation with the given command-line arguments.
@@ -233,6 +242,153 @@ impl TraciClient {
     }
 
     // -----------------------------------------------------------------------
+    // Vehicle convenience forwarders
+    //
+    // Calling `client.vehicle.some_method(&mut client, ...)` does not compile
+    // because `client.vehicle` borrows `client` immutably while `&mut client`
+    // borrows it mutably at the same time.  These thin forwarders on
+    // `TraciClient` itself are the idiomatic solution: `&mut self` gives the
+    // compiler a single mutable borrow it can split into the scope field and
+    // the rest of the struct internally.
+    // -----------------------------------------------------------------------
+
+    /// Returns the list of all vehicle IDs currently in the simulation.
+    pub fn vehicle_get_id_list(&mut self) -> Result<Vec<String>, TraciError> {
+        use crate::constants::{CMD_GET_VEHICLE_VARIABLE, TRACI_ID_LIST, TYPE_STRINGLIST};
+        self.create_command(CMD_GET_VEHICLE_VARIABLE, TRACI_ID_LIST, "", None);
+        self.process_get(CMD_GET_VEHICLE_VARIABLE, Some(TYPE_STRINGLIST))?;
+        self.read_string_list_from_input()
+    }
+
+    /// Returns the 2-D position of `vehicle_id`.
+    pub fn vehicle_get_position(&mut self, vehicle_id: &str) -> Result<crate::types::TraciPosition, TraciError> {
+        use crate::constants::{CMD_GET_VEHICLE_VARIABLE, VAR_POSITION, POSITION_2D};
+        self.create_command(CMD_GET_VEHICLE_VARIABLE, VAR_POSITION, vehicle_id, None);
+        self.process_get(CMD_GET_VEHICLE_VARIABLE, Some(POSITION_2D))?;
+        self.read_pos_2d_from_input()
+    }
+
+    /// Returns the speed (m/s) of `vehicle_id`.
+    pub fn vehicle_get_speed(&mut self, vehicle_id: &str) -> Result<f64, TraciError> {
+        use crate::constants::{CMD_GET_VEHICLE_VARIABLE, VAR_SPEED, TYPE_DOUBLE};
+        self.create_command(CMD_GET_VEHICLE_VARIABLE, VAR_SPEED, vehicle_id, None);
+        self.process_get(CMD_GET_VEHICLE_VARIABLE, Some(TYPE_DOUBLE))?;
+        self.read_double_from_input()
+    }
+
+    /// Returns the acceleration (m/s²) of `vehicle_id`.
+    pub fn vehicle_get_acceleration(&mut self, vehicle_id: &str) -> Result<f64, TraciError> {
+        use crate::constants::{CMD_GET_VEHICLE_VARIABLE, VAR_ACCELERATION, TYPE_DOUBLE};
+        self.create_command(CMD_GET_VEHICLE_VARIABLE, VAR_ACCELERATION, vehicle_id, None);
+        self.process_get(CMD_GET_VEHICLE_VARIABLE, Some(TYPE_DOUBLE))?;
+        self.read_double_from_input()
+    }
+
+    /// Returns the heading angle (degrees) of `vehicle_id`.
+    pub fn vehicle_get_angle(&mut self, vehicle_id: &str) -> Result<f64, TraciError> {
+        use crate::constants::{CMD_GET_VEHICLE_VARIABLE, VAR_ANGLE, TYPE_DOUBLE};
+        self.create_command(CMD_GET_VEHICLE_VARIABLE, VAR_ANGLE, vehicle_id, None);
+        self.process_get(CMD_GET_VEHICLE_VARIABLE, Some(TYPE_DOUBLE))?;
+        self.read_double_from_input()
+    }
+
+    /// Subscribe `vehicle_id` to kinematic variable updates for every step
+    /// in the range [`begin`, `end`].  Results are available via
+    /// [`TraciClient::vehicle_get_subscribed_kinematics`] after each
+    /// [`TraciClient::simulation_step`] call.
+    pub fn vehicle_subscribe_kinematics(
+        &mut self,
+        vehicle_id: &str,
+        begin: f64,
+        end: f64,
+    ) -> Result<(), TraciError> {
+        use crate::constants::{
+            CMD_SUBSCRIBE_VEHICLE_VARIABLE, VAR_POSITION, VAR_SPEED, VAR_ACCELERATION, VAR_ANGLE,
+        };
+        let vars = [VAR_POSITION, VAR_SPEED, VAR_ACCELERATION, VAR_ANGLE];
+        self.subscribe_object_variable(CMD_SUBSCRIBE_VEHICLE_VARIABLE, vehicle_id, begin, end, &vars)
+    }
+
+    /// Read the cached kinematic state for `vehicle_id` populated by the last
+    /// `simulation_step` call.  Returns `None` if no subscription result is
+    /// available for this vehicle.
+    pub fn vehicle_get_subscribed_kinematics(
+        &self,
+        vehicle_id: &str,
+    ) -> Option<crate::types::SubscribedKinematics> {
+        self.vehicle.get_subscribed_kinematics(vehicle_id)
+    }
+
+    /// Add a new route to the simulation.
+    pub fn route_add(&mut self, route_id: &str, edges: &[&str]) -> Result<(), TraciError> {
+        use crate::constants::{CMD_SET_ROUTE_VARIABLE, ADD, TYPE_STRINGLIST};
+        use crate::storage::Storage;
+        let mut add = Storage::new();
+        add.write_u8(TYPE_STRINGLIST);
+        let owned: Vec<String> = edges.iter().map(|s| s.to_string()).collect();
+        add.write_string_list(&owned);
+        self.create_command(CMD_SET_ROUTE_VARIABLE, ADD, route_id, Some(&add));
+        self.process_set(CMD_SET_ROUTE_VARIABLE)?;
+        Ok(())
+    }
+
+    /// Returns the list of all route IDs currently defined in the simulation.
+    pub fn route_get_id_list(&mut self) -> Result<Vec<String>, TraciError> {
+        use crate::constants::{CMD_GET_ROUTE_VARIABLE, TRACI_ID_LIST, TYPE_STRINGLIST};
+        self.create_command(CMD_GET_ROUTE_VARIABLE, TRACI_ID_LIST, "", None);
+        self.process_get(CMD_GET_ROUTE_VARIABLE, Some(TYPE_STRINGLIST))?;
+        self.read_string_list_from_input()
+    }
+
+    /// Returns the list of all edge IDs in the network.
+    pub fn edge_get_id_list(&mut self) -> Result<Vec<String>, TraciError> {
+        use crate::constants::{CMD_GET_EDGE_VARIABLE, TRACI_ID_LIST, TYPE_STRINGLIST};
+        self.create_command(CMD_GET_EDGE_VARIABLE, TRACI_ID_LIST, "", None);
+        self.process_get(CMD_GET_EDGE_VARIABLE, Some(TYPE_STRINGLIST))?;
+        self.read_string_list_from_input()
+    }
+
+    /// Add a vehicle to the simulation with sensible defaults.
+    ///
+    /// - `vehicle_id`: unique ID for the new vehicle
+    /// - `route_id`:   an existing route ID
+    /// - `type_id`:    vehicle type ID (e.g. `"DEFAULT_VEHTYPE"`)
+    ///
+    /// The vehicle departs "now" on a random free lane at a random position
+    /// with maximum allowed speed.
+    pub fn vehicle_add(
+        &mut self,
+        vehicle_id: &str,
+        route_id: &str,
+        type_id: &str,
+    ) -> Result<(), TraciError> {
+        use crate::constants::{
+            CMD_SET_VEHICLE_VARIABLE, ADD_FULL, TYPE_COMPOUND, TYPE_STRING, TYPE_INTEGER,
+        };
+        use crate::storage::Storage;
+        let mut add = Storage::new();
+        add.write_u8(TYPE_COMPOUND);
+        add.write_i32(14);
+        add.write_u8(TYPE_STRING); add.write_string(route_id);   // routeID
+        add.write_u8(TYPE_STRING); add.write_string(type_id);    // typeID
+        add.write_u8(TYPE_STRING); add.write_string("now");      // depart
+        add.write_u8(TYPE_STRING); add.write_string("best");     // departLane
+        add.write_u8(TYPE_STRING); add.write_string("base");     // departPos
+        add.write_u8(TYPE_STRING); add.write_string("max");      // departSpeed
+        add.write_u8(TYPE_STRING); add.write_string("current");  // arrivalLane
+        add.write_u8(TYPE_STRING); add.write_string("max");      // arrivalPos
+        add.write_u8(TYPE_STRING); add.write_string("current");  // arrivalSpeed
+        add.write_u8(TYPE_STRING); add.write_string("");         // fromTaz
+        add.write_u8(TYPE_STRING); add.write_string("");         // toTaz
+        add.write_u8(TYPE_STRING); add.write_string("");         // line
+        add.write_u8(TYPE_INTEGER); add.write_i32(0);            // personCapacity
+        add.write_u8(TYPE_INTEGER); add.write_i32(0);            // personNumber
+        self.create_command(CMD_SET_VEHICLE_VARIABLE, ADD_FULL, vehicle_id, Some(&add));
+        self.process_set(CMD_SET_VEHICLE_VARIABLE)?;
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
     // Subscription access
     // -----------------------------------------------------------------------
 
@@ -247,8 +403,16 @@ impl TraciClient {
     ) -> Result<(), TraciError> {
         let mut msg = Storage::new();
         let var_no = vars.len();
-        msg.write_u8(0);
-        msg.write_i32((5 + 1 + 8 + 8 + 4 + obj_id.len() + 1 + var_no) as i32);
+        // payload = cmd(1) + begin(8) + end(8) + string(4+len) + var_count(1) + vars(var_no)
+        let payload = 1 + 8 + 8 + 4 + obj_id.len() + 1 + var_no;
+        if payload + 1 <= 255 {
+            // short form: 1-byte length field includes itself
+            msg.write_u8((payload + 1) as u8);
+        } else {
+            // long form: 0x00 sentinel + 4-byte length; length includes the 5-byte header
+            msg.write_u8(0);
+            msg.write_i32((payload + 5) as i32);
+        }
         msg.write_u8(dom_id);
         msg.write_f64(begin_time);
         msg.write_f64(end_time);
@@ -258,6 +422,13 @@ impl TraciClient {
             msg.write_u8(v);
         }
         self.socket_mut()?.send_exact(&msg)?;
+
+        // Consume the STATUS_RESPONSE acknowledgement SUMO sends immediately.
+        // Without this, the next send/receive will read a stale byte causing
+        // a protocol desync and confusing errors on subsequent simulation_step calls.
+        let mut in_msg = self.socket_mut()?.receive_exact()?;
+        Self::check_result_state_static(&mut in_msg, dom_id, false, None)?;
+
         Ok(())
     }
 
@@ -274,8 +445,14 @@ impl TraciClient {
     ) -> Result<(), TraciError> {
         let mut msg = Storage::new();
         let var_no = vars.len();
-        msg.write_u8(0);
-        msg.write_i32((5 + 1 + 8 + 8 + 4 + obj_id.len() + 1 + 8 + 1 + var_no) as i32);
+        // payload = cmd(1) + begin(8) + end(8) + string(4+len) + domain(1) + range(8) + var_count(1) + vars(var_no)
+        let payload = 1 + 8 + 8 + 4 + obj_id.len() + 1 + 8 + 1 + var_no;
+        if payload + 1 <= 255 {
+            msg.write_u8((payload + 1) as u8);
+        } else {
+            msg.write_u8(0);
+            msg.write_i32((payload + 5) as i32);
+        }
         msg.write_u8(dom_id);
         msg.write_f64(begin_time);
         msg.write_f64(end_time);
@@ -287,6 +464,11 @@ impl TraciClient {
             msg.write_u8(v);
         }
         self.socket_mut()?.send_exact(&msg)?;
+
+        // Consume the STATUS_RESPONSE acknowledgement SUMO sends immediately.
+        let mut in_msg = self.socket_mut()?.receive_exact()?;
+        Self::check_result_state_static(&mut in_msg, dom_id, false, None)?;
+
         Ok(())
     }
 

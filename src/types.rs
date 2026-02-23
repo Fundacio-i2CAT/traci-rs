@@ -364,3 +364,23 @@ pub struct TraciSignalConstraint {
     pub active: bool,
     pub param: HashMap<String, String>,
 }
+
+// ============================================================================
+// SubscribedKinematics — populated by VehicleScope::subscribe_kinematics
+// ============================================================================
+
+/// Kinematic state for a vehicle, populated by `VehicleScope::subscribe_kinematics`.
+///
+/// All fields are updated automatically on every `simulation_step()` call once
+/// a subscription has been set up.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubscribedKinematics {
+    /// 2-D Cartesian position in the SUMO network coordinate system (metres).
+    pub position: TraciPosition,
+    /// Longitudinal speed (m/s).
+    pub speed: f64,
+    /// Longitudinal acceleration (m/s²). Positive = accelerating, negative = braking.
+    pub acceleration: f64,
+    /// Heading angle (degrees, 0 = North, clockwise).
+    pub angle: f64,
+}
