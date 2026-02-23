@@ -1,6 +1,6 @@
 [package]
 name = "traci-rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Pure Rust client library for the SUMO TraCI protocol"
 license = "EPL-2.0"
