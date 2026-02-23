@@ -1,0 +1,24 @@
+# Generated files
+/target/
+
+# Cargo lock file (keep for binaries, ignore for libraries)
+# Cargo.lock
+
+# Environment variables
+.env
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Rust build artifacts
+**/*.rs.bk
+*.pdb
+sumosrc/

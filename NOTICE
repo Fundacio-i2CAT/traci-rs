@@ -1,0 +1,26 @@
+sumo-traci
+==========
+
+This project is a Rust translation of the TraCIAPI C++ library from the
+Eclipse SUMO project.
+
+-------------------------------------------------------------------------------
+Original work:
+  Eclipse SUMO — Simulation of Urban MObility
+  Copyright (c) 2001-2024 German Aerospace Center (DLR) and others
+  Source: https://github.com/eclipse-sumo/sumo
+  License: Eclipse Public License 2.0 (EPL-2.0)
+
+Derived files (translated to Rust):
+  https://github.com/eclipse-sumo/sumo/blob/main/src/utils/traci/TraCIAPI.cpp
+  https://github.com/eclipse-sumo/sumo/blob/main/src/utils/traci/TraCIAPI.h
+  https://github.com/eclipse-sumo/sumo/blob/main/src/foreign/tcpip/socket.cpp
+  https://github.com/eclipse-sumo/sumo/blob/main/src/foreign/tcpip/socket.h
+  https://github.com/eclipse-sumo/sumo/blob/main/src/foreign/tcpip/storage.cpp
+  https://github.com/eclipse-sumo/sumo/blob/main/src/foreign/tcpip/storage.h
+  https://github.com/eclipse-sumo/sumo/blob/main/src/libsumo/TraCIConstants.h
+  https://github.com/eclipse-sumo/sumo/blob/main/src/libsumo/TraCIDefs.h
+-------------------------------------------------------------------------------
+
+Both the original C++ code and this Rust translation are distributed under
+EPL-2.0. See LICENSE for the full license text.

@@ -1,0 +1,18 @@
+[package]
+name = "traci-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Pure Rust client library for the SUMO TraCI protocol"
+license = "EPL-2.0"
+repository = "https://github.com/Fundacio-i2CAT/traci-rs"
+readme = "README.md"
+keywords = ["sumo", "traci", "simulation", "traffic", "autonomous"]
+categories = ["simulation", "network-programming"]
+
+[lib]
+name = "traci_rs"
+path = "src/lib.rs"
+
+[[example]]
+name = "simple_simulation"
+path = "examples/simple_simulation.rs"
